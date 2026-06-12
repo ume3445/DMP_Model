@@ -39,6 +39,7 @@ struct Params
     # --- Production ---
     alpha   :: Float64      # capital share in y = z * k^alpha * ell^(1-alpha)
     k       :: Float64      # capital per firm (fixed/normalized)
+    r       :: Float64      # rental rate of capital
 
     # --- Labor market frictions ---
     s       :: Float64      # exogenous separation rate
@@ -67,6 +68,7 @@ function make_params(;
     b       = 0.40,
     alpha   = 0.33,
     k       = 1.00,
+    r       = 0.01,
     s       = 0.03,
     d       = 0.02,
     eta     = 0.50,
@@ -85,7 +87,7 @@ function make_params(;
 
     ell_grid = collect(range(0.1, ell_max, length=n_ell))
 
-    return Params(beta, b, alpha, k, s, d, eta, kappa_v, kappa_e,
+    return Params(beta, b, alpha, k, r, s, d, eta, kappa_v, kappa_e,
                   A, xi, n_z, z_grid, Pi_z, pi_z, n_ell, ell_grid)
 end
 
@@ -156,19 +158,19 @@ q_theta(theta::Float64, p::Params) = p.A * theta^(-p.xi)
 # =============================================================================
 # SECTION 4: Production and Marginal Product of Labor
 #
-# y(z, ell) = z * k^alpha * ell^(1-alpha)
-# MPL(z, ell) = (1-alpha) * z * k^alpha * ell^(-alpha)
-# Profits pi(z, ell, w) = y(z,ell) - w*ell   [before vacancy costs]
+# y(z, ell, k) = z * k^alpha * ell^(1-alpha)
+# MPL(z, ell)  = (1-alpha) * z * k^alpha * ell^(-alpha)
+# pi(z, ell, w) = y(z,ell,k) - w*ell - r*k   [profits, before vacancy costs]
 # =============================================================================
 
-production(z::Float64, ell::Float64, p::Params) =
+y(z::Float64, ell::Float64, p::Params) =
     z * p.k^p.alpha * ell^(1.0 - p.alpha)
 
 MPL(z::Float64, ell::Float64, p::Params) =
     (1.0 - p.alpha) * z * p.k^p.alpha * ell^(-p.alpha)
 
-profits(z::Float64, ell::Float64, w::Float64, p::Params) =
-    production(z, ell, p) - w * ell
+pi_firm(z::Float64, ell::Float64, w::Float64, p::Params) =
+    y(z, ell, p) - w * ell - p.r * p.k
 
 
 # =============================================================================
@@ -298,7 +300,7 @@ function solve_firm_vfi(theta::Float64, p::Params;
             for il in 1:p.n_ell
                 ell = p.ell_grid[il]
                 w   = nash_wage(z, ell, theta, p)
-                pi_flow = profits(z, ell, w, p)     # y(z,ell) - w*ell
+                pi_flow = pi_firm(z, ell, w, p)      # y(z,ell,k) - w*ell - r*k
 
                 # Objective for vacancy choice v:
                 #   pi_flow - kappa_v*v + beta*(1-d)*E[E(z', ell') | z]
@@ -449,13 +451,13 @@ function report_equilibrium(eq::Equilibrium)
     println(@sprintf("  W_bar - U     = %.4f   [worker surplus]", eq.W_bar - eq.U))
 
     println("\n--- Wages at entry size (ell=1), by z ---")
-    println(@sprintf("  %-12s %-10s %-10s %-10s", "z", "wage", "MPL", "profit/ell"))
+    println(@sprintf("  %-12s %-10s %-10s %-10s", "z", "wage", "MPL", "pi(z,1)"))
     println("  " * "-" ^ 44)
     for iz in round.(Int, range(1, p.n_z, length=5))
         z = p.z_grid[iz]
         w = nash_wage(z, 1.0, theta, p)
         mpl = MPL(z, 1.0, p)
-        pr = profits(z, 1.0, w, p)
+        pr = pi_firm(z, 1.0, w, p)
         println(@sprintf("  %-12.4f %-10.4f %-10.4f %-10.4f", z, w, mpl, pr))
     end
 
@@ -489,6 +491,7 @@ function main()
         b       = 0.40,
         alpha   = 0.33,
         k       = 1.00,
+        r       = 0.01,
         s       = 0.03,
         d       = 0.02,
         eta     = 0.50,
